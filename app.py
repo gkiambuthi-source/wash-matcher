@@ -9,37 +9,86 @@ from groq import Groq
 # ---------- Configuration ----------
 CSV_URL = "https://github.com/openwashdata/washopenresearch/raw/main/inst/extdata/washdev.csv"
 CSV_FILE = "washdev.csv"
-GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_MODEL = "llama-3.1-8b-instant"   # updated model
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+
+# Optional: scrape RWSN (set to True to enable)
+SCRAPE_RWSN = False
 
 app = Flask(__name__)
 
-# ---------- Initialize Groq (only if key exists) ----------
+# ---------- Initialize Groq ----------
 if GROQ_API_KEY:
     groq_client = Groq(api_key=GROQ_API_KEY)
 else:
     groq_client = None
     print("WARNING: GROQ_API_KEY not set. LLM summaries disabled.")
 
-# ---------- Load knowledge base (no pickle, just CSV) ----------
+# ---------- Load knowledge base (with URLs) ----------
 def load_knowledge_base():
-    """Download CSV if needed and return {title: description} dictionary."""
+    """Download CSV if needed and return dict: title -> {description, url}."""
     if not os.path.exists(CSV_FILE):
         print("Downloading washdev.csv...")
         urllib.request.urlretrieve(CSV_URL, CSV_FILE)
+
     df = pd.read_csv(CSV_FILE)
     df['description'] = df['title'].fillna('') + " " + df['keywords'].fillna('')
     df = df.dropna(subset=['title'])
-    products = dict(zip(df['title'], df['description']))
+
+    products = {}
+    for _, row in df.iterrows():
+        title = row['title']
+        # The CSV column containing the URL is named 'publication url'
+        url = row.get('publication url', '')
+        if pd.isna(url):
+            url = ''
+        products[title] = {
+            'description': row['description'],
+            'url': url
+        }
+
     print(f"Loaded {len(products)} products from CSV.")
     return products
 
-# ---------- Matching function ----------
+# ---------- Optional RWSN scraper (with URLs) ----------
+def scrape_rwsn():
+    """Scrape titles, descriptions, and URLs from RWSN library."""
+    import requests
+    from bs4 import BeautifulSoup
+    import time
+
+    url = "https://rural-water-supply.net/en/resources"
+    print("🌐 Scraping RWSN library...")
+    try:
+        time.sleep(1)
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.content, 'html.parser')
+        resources = {}
+        for item in soup.find_all('div', class_='list-group-item'):
+            a_tag = item.find('a')
+            p_tag = item.find('p')
+            if a_tag and p_tag:
+                title = a_tag.get_text(strip=True)
+                link = a_tag.get('href')
+                if link and not link.startswith('http'):
+                    link = "https://rural-water-supply.net" + link
+                desc = p_tag.get_text(strip=True)
+                resources[title] = {'description': desc, 'url': link}
+        print(f"   Scraped {len(resources)} resources from RWSN.")
+        return resources
+    except Exception as e:
+        print(f"   RWSN scraping failed: {e}")
+        return {}
+
+# ---------- Matching function (returns titles, scores, urls) ----------
 def match_query(query, products_dict, top_n=5):
     if not query:
         return []
     titles = list(products_dict.keys())
-    descriptions = list(products_dict.values())
+    descriptions = [products_dict[title]['description'] for title in titles]
+
     vectorizer = TfidfVectorizer(stop_words="english")
     all_texts = [query] + descriptions
     tfidf = vectorizer.fit_transform(all_texts)
@@ -47,10 +96,16 @@ def match_query(query, products_dict, top_n=5):
     doc_vecs = tfidf[1:]
     scores = cosine_similarity(query_vec, doc_vecs).flatten()
     top_indices = scores.argsort()[-top_n:][::-1]
-    results = [(titles[i], scores[i]) for i in top_indices if scores[i] > 0.05]
+
+    results = []
+    for i in top_indices:
+        if scores[i] > 0.05:
+            title = titles[i]
+            url = products_dict[title]['url']
+            results.append((title, scores[i], url))
     return results
 
-# ---------- LLM summary (safe) ----------
+# ---------- LLM summarization ----------
 def summarize_with_groq(query, product_title, product_desc, score):
     if not groq_client:
         return "LLM summaries not available (missing API key)."
@@ -82,18 +137,27 @@ def index():
         if not query:
             return render_template('index.html', error="Please enter a query.",
                                    units=["Water Quality", "Leakage Reduction", "Customer Service", "Wastewater Treatment"])
+
         try:
             products = load_knowledge_base()
+            # Optional: add scraped data
+            if SCRAPE_RWSN:
+                scraped = scrape_rwsn()
+                for title, data in scraped.items():
+                    if title not in products:
+                        products[title] = data
+
             matches = match_query(query, products, top_n=3)
             summaries = []
-            for title, score in matches:
-                desc = products[title]
+            for title, score, url in matches:
+                desc = products[title]['description']
                 summary = summarize_with_groq(query, title, desc, score)
-                summaries.append((title, score, summary))
+                summaries.append((title, score, summary, url))
             return render_template('results.html', query=query, matches=summaries)
         except Exception as e:
             error_msg = f"Internal error: {str(e)[:200]}"
             return render_template('index.html', error=error_msg, units=[])
+
     return render_template('index.html', units=["Water Quality", "Leakage Reduction", "Customer Service", "Wastewater Treatment"])
 
 if __name__ == '__main__':
