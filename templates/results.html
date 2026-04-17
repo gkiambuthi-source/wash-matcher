@@ -9,19 +9,30 @@
         .match { border-left: 5px solid #1e6f5c; background: #f9fefc; margin: 20px 0; padding: 15px; border-radius: 8px; }
         .score { color: #1e6f5c; font-weight: bold; font-size: 0.9em; }
         .summary { margin-top: 10px; color: #2c3e50; line-height: 1.4; }
-        a { color: #1e6f5c; text-decoration: none; font-weight: bold; }
+        a { color: #1e6f5c; text-decoration: none; }
         a:hover { text-decoration: underline; }
+        .resource-link { font-size: 0.85em; margin-top: 5px; }
+        .resource-link a { color: #0b5e7c; word-break: break-all; }
     </style>
 </head>
 <body>
 <div class="container">
     <h1>📚 Results for: "{{ query }}"</h1>
     {% if matches %}
-        {% for title, score, summary in matches %}
+        {% for title, score, summary, url in matches %}
         <div class="match">
-            <strong>📄 {{ title }}</strong><br>
+            <strong>📄 
+                {% if url %}
+                    <a href="{{ url }}" target="_blank" rel="noopener noreferrer">{{ title }}</a>
+                {% else %}
+                    {{ title }}
+                {% endif %}
+            </strong><br>
             <span class="score">Relevance: {{ "%.2f"|format(score) }}</span>
             <div class="summary">💡 {{ summary }}</div>
+            {% if url %}
+            <div class="resource-link">🔗 <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open resource</a></div>
+            {% endif %}
         </div>
         {% endfor %}
     {% else %}
