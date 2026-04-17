@@ -1,7 +1,7 @@
 flask
+gunicorn
 pandas
 scikit-learn
 requests
 beautifulsoup4
 groq
-gunicorn
