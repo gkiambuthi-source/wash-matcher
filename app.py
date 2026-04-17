@@ -9,7 +9,7 @@ from groq import Groq
 # ---------- Configuration ----------
 CSV_URL = "https://github.com/openwashdata/washopenresearch/raw/main/inst/extdata/washdev.csv"
 CSV_FILE = "washdev.csv"
-GROQ_MODEL = "llama3-8b-8192"
+GROQ_MODEL = "llama-3.1-8b-instant"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 app = Flask(__name__)
