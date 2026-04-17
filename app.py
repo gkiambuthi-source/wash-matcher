@@ -39,7 +39,7 @@ def load_knowledge_base():
     for _, row in df.iterrows():
         title = row['title']
         # The CSV column containing the URL is named 'publication url'
-        url = row.get('publication url', '')
+        url = row.get('paper_url', '')
         if pd.isna(url):
             url = ''
         products[title] = {
@@ -115,7 +115,7 @@ Product: "{product_title}"
 Description: {product_desc}
 Relevance score: {score:.2f}
 
-Explain in 2-3 sentences why this product is useful and how to use it."""
+Explain in 2-3 sentences why this product is useful, for who and how to use it."""
     try:
         response = groq_client.chat.completions.create(
             model=GROQ_MODEL,
